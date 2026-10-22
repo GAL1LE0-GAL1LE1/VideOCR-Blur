@@ -38,8 +38,6 @@ jobs:
           if [ "$RUNNER_OS" = "Linux" ]; then python -m pip install patchelf; fi
 
       - name: Build
-        env:
-          NUITKA_ASSUME_YES_FOR_DOWNLOADS: "1"
         run: python build.py --cli-only true --target ${{ matrix.target }} --archive true --release-type blur
 
       - uses: actions/upload-artifact@v4

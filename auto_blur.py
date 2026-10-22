@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # nuitka-project: --standalone
 # nuitka-project: --no-prefer-source-code
+# nuitka-project: --assume-yes-for-downloads
 # nuitka-project: --enable-plugin=tk-inter
 # nuitka-project: --output-filename=auto-blur
 # nuitka-project: --windows-console-mode=attach

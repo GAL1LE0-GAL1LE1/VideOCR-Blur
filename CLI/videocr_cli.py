@@ -1,6 +1,7 @@
 # Compilation instructions
 # nuitka-project: --standalone
 # nuitka-project: --no-prefer-source-code
+# nuitka-project: --assume-yes-for-downloads
 # nuitka-project: --include-windows-runtime-dlls=yes
 # nuitka-project-if: {OS} == "Windows":
 #     nuitka-project: --output-filename=videocr-cli
