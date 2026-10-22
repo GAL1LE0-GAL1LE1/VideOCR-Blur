@@ -294,7 +294,7 @@ def create_windows_installer(final_app_path: Path, args: argparse.Namespace) -> 
 
 
 # --- Main Build Logic ---
-def package_target(build_target: str, args: argparse.Namespace, releases_dir: Path, base_gui_dist: Path | None, base_cli_dist: Path, paddle_version: str, chrome_lens_version: str) -> None:
+def package_target(build_target: str, args: argparse.Namespace, releases_dir: Path, base_gui_dist: Path | None, base_cli_dist: Path, auto_blur_dist: Path, paddle_version: str, chrome_lens_version: str) -> None:
     """Packages a single distribution for the specified target using pre-compiled files."""
 
     is_cli_only = args.cli_only.lower() == 'true'
@@ -317,6 +317,7 @@ def package_target(build_target: str, args: argparse.Namespace, releases_dir: Pa
     print(f"Creating temporary work directories in '{work_dir}'...")
     temp_cli_dist = work_dir / "cli_dist"
     shutil.copytree(base_cli_dist, temp_cli_dist)
+    shutil.copytree(auto_blur_dist, temp_cli_dist, dirs_exist_ok=True)
 
     temp_gui_dist = None
     if not is_cli_only and base_gui_dist:
@@ -533,6 +534,15 @@ def main() -> None:
     if cli_exe.exists():
         sign_file(args.signtool, args.sign_cert_name, cli_exe)
 
+    # Compile auto_blur (blurs the detected subtitles, has a small GUI); it ships in the same folder as the CLI
+    auto_blur_dist = Path("auto_blur.dist")
+    if auto_blur_dist.exists():
+        shutil.rmtree(auto_blur_dist)
+    run_command([sys.executable, "-m", "nuitka", "auto_blur.py"])
+    if not auto_blur_dist.is_dir():
+        print(f"ERROR: Nuitka failed to create the auto_blur dist folder: {auto_blur_dist}")
+        sys.exit(1)
+
     # --- Package for each target ---
     if args.target == 'cpu':
         targets_to_build = ['cpu']
@@ -544,7 +554,7 @@ def main() -> None:
         targets_to_build = [args.target]
 
     for i, build_target in enumerate(targets_to_build):
-        package_target(build_target, args, releases_dir, gui_dist_folder, cli_dist_folder, paddle_version, chrome_lens_version)
+        package_target(build_target, args, releases_dir, gui_dist_folder, cli_dist_folder, auto_blur_dist, paddle_version, chrome_lens_version)
         if i < len(targets_to_build) - 1:
             if "gpu" in build_target:
                 completed_target_name = build_target.replace("gpu-", "GPU-").replace("cuda", "CUDA-")
@@ -560,6 +570,7 @@ def main() -> None:
     if gui_dist_folder:
         shutil.rmtree(gui_dist_folder)
     shutil.rmtree(cli_dist_folder)
+    shutil.rmtree(auto_blur_dist)
 
     print_header("All Builds Complete!")
     print(f"All outputs are located in the '{releases_dir}' folder.")
