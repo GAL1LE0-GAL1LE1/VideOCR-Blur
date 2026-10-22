@@ -257,6 +257,25 @@ Input Video Quality       | Use lower quality           | Use higher quality  | 
 
   Directory where the images from `save_ocr_images` are saved. Defaults to `ocr_images` in the current working directory if not specified.
 
+- `boxes_output`
+
+  Optional path to a JSON file. If set, the bounding boxes of the detected subtitle lines are saved there in video pixels (`[x1, y1, x2, y2]`), together with the start/end time in seconds of each subtitle. The `index` matches the numbering in the SRT file. Intended for post-processing such as blurring the subtitles.
+
+## Blurring hardcoded subtitles (CLI version)
+
+`auto_blur` extracts the subtitles and writes a copy of the video with them blurred, in one step. Started without arguments it opens a small window (video, output folder, language, run button, progress text). From the command line:
+
+```
+auto_blur VIDEO --lang LANG [--output_dir DIR] [--time_end SECONDS] [--cli_dir DIR]
+```
+
+It writes `<name>.srt` and `<name>_blurred.mp4` next to the video, or into `--output_dir`. Requirements:
+
+- A videocr-cli build that supports `--boxes_output`. `auto_blur` looks in its own folder first, then for `videocr-cli-*` folders next to it (or use `--cli_dir`).
+- `ffmpeg` and `ffprobe` on the PATH.
+
+`auto_blur.py` can also be run directly with Python 3 (standard library only). `blur_subtitles.py` is the second half on its own: `python3 blur_subtitles.py VIDEO BOXES.json [-o OUT]`, where `BOXES.json` comes from `--boxes_output`.
+
 ## Build and Compile Instructions
 
 - Requirements:
