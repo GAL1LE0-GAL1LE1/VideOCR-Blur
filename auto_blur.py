@@ -191,7 +191,7 @@ def gui() -> None:
             output_dir = self.output_dir.get().strip() or os.path.dirname(video)
 
             cmd = [*self_command(), video, '--lang', LANGUAGES[self.language.get()], '--output_dir', output_dir]
-            flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+            flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
             self.clear_log()
             self.run_button.configure(state='disabled')
             try:

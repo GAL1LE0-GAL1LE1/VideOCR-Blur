@@ -13,6 +13,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from typing import Any
 
 
 def probe(video: str) -> tuple[float, str]:
@@ -24,7 +25,7 @@ def probe(video: str) -> tuple[float, str]:
     return float(data['format']['duration']), data['streams'][0]['r_frame_rate']
 
 
-def build_filter(data: dict, fps: str, duration: float, padding: int, time_padding: float, blur: int, time_end: float | None) -> str:
+def build_filter(data: dict[str, Any], fps: str, duration: float, padding: int, time_padding: float, blur: int, time_end: float | None) -> str:
     width, height = data['video']['width'], data['video']['height']
     # Boxes are in display pixels; with a non-square pixel aspect ratio ffmpeg's filters see coded pixels.
     sar = data['video'].get('sample_aspect_ratio') or 1.0
