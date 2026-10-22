@@ -7,6 +7,7 @@ import stat
 import subprocess
 import sys
 import tarfile
+import zipfile
 from pathlib import Path
 
 import requests  # type: ignore[import-untyped, unused-ignore]
@@ -40,6 +41,11 @@ PADDLE_URLS: dict[str, dict[str, str | list[str]]] = {
             "https://github.com/timminator/PaddleOCR-Standalone/releases/download/v{version}/PaddleOCR-GPU-v{version}-CUDA-12.9-Linux.7z.002",
         ]
     }
+}
+
+FFMPEG_URLS: dict[str, str] = {
+    "Windows": "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip",
+    "Linux": "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
 }
 
 CHROME_LENS_URLS: dict[str, str] = {
@@ -184,6 +190,39 @@ def extract_archive(file_path: Path, dest_folder: str | Path) -> None:
     print(f"Extracted to {dest_folder}")
 
 
+def add_ffmpeg(os_name: str, dest_folder: Path) -> None:
+    """Downloads a static ffmpeg build and puts ffmpeg and ffprobe into the folder (used by auto_blur)."""
+    archive_path = download_file(FFMPEG_URLS[os_name], dest_folder)
+    wanted = {"ffmpeg.exe", "ffprobe.exe"} if os_name == "Windows" else {"ffmpeg", "ffprobe"}
+    found: set[str] = set()
+
+    print(f"Extracting ffmpeg from {archive_path.name}...")
+    if archive_path.suffix == ".zip":
+        with zipfile.ZipFile(archive_path) as zf:
+            for name in zf.namelist():
+                base = os.path.basename(name)
+                if base in wanted and "/bin/" in name:
+                    with zf.open(name) as src, open(dest_folder / base, "wb") as out:
+                        shutil.copyfileobj(src, out)
+                    found.add(base)
+    else:
+        with tarfile.open(archive_path, "r:xz") as tf:
+            for member in tf.getmembers():
+                base = os.path.basename(member.name)
+                if member.isfile() and base in wanted and "/bin/" in member.name:
+                    extracted = tf.extractfile(member)
+                    assert extracted is not None
+                    with extracted, open(dest_folder / base, "wb") as out:
+                        shutil.copyfileobj(extracted, out)
+                    (dest_folder / base).chmod(0o755)
+                    found.add(base)
+
+    os.remove(archive_path)
+    if found != wanted:
+        print(f"ERROR: Could not find {sorted(wanted - found)} in the ffmpeg archive.")
+        sys.exit(1)
+
+
 def sign_file(signtool_path: str | None, cert_name: str | None, file_to_sign: Path) -> None:
     """Signs a file using signtool.exe on Windows."""
     if not signtool_path or sys.platform != "win32":
@@ -294,7 +333,7 @@ def create_windows_installer(final_app_path: Path, args: argparse.Namespace) -> 
 
 
 # --- Main Build Logic ---
-def package_target(build_target: str, args: argparse.Namespace, releases_dir: Path, base_gui_dist: Path | None, base_cli_dist: Path, paddle_version: str, chrome_lens_version: str) -> None:
+def package_target(build_target: str, args: argparse.Namespace, releases_dir: Path, base_gui_dist: Path | None, base_cli_dist: Path, auto_blur_dist: Path, paddle_version: str, chrome_lens_version: str) -> None:
     """Packages a single distribution for the specified target using pre-compiled files."""
 
     is_cli_only = args.cli_only.lower() == 'true'
@@ -306,7 +345,7 @@ def package_target(build_target: str, args: argparse.Namespace, releases_dir: Pa
 
     print_header(f"Packaging for Target: {display_target_name}")
     os_name = "Windows" if sys.platform == "win32" else "Linux"
-    os_suffix = "-Linux" if os_name == "Linux" else ""
+    os_suffix = f"-{os_name}"
 
     # Create a temporary directory for this target's packaging process
     work_dir = releases_dir / f"work_{build_target}"
@@ -317,6 +356,7 @@ def package_target(build_target: str, args: argparse.Namespace, releases_dir: Pa
     print(f"Creating temporary work directories in '{work_dir}'...")
     temp_cli_dist = work_dir / "cli_dist"
     shutil.copytree(base_cli_dist, temp_cli_dist)
+    shutil.copytree(auto_blur_dist, temp_cli_dist, dirs_exist_ok=True)
 
     temp_gui_dist = None
     if not is_cli_only and base_gui_dist:
@@ -367,6 +407,8 @@ def package_target(build_target: str, args: argparse.Namespace, releases_dir: Pa
     for file_path in Path(temp_cli_dist).rglob("*portable_mode.txt*"):
         if file_path.is_file():
             file_path.unlink(missing_ok=True)
+
+    add_ffmpeg(os_name, temp_cli_dist)
 
     # Assemble Final Directory Structure
     print_header(f"Assembling Final Directory Structure for {display_target_name}")
@@ -533,6 +575,15 @@ def main() -> None:
     if cli_exe.exists():
         sign_file(args.signtool, args.sign_cert_name, cli_exe)
 
+    # Compile auto_blur (blurs the detected subtitles, has a small GUI); it ships in the same folder as the CLI
+    auto_blur_dist = Path("auto_blur.dist")
+    if auto_blur_dist.exists():
+        shutil.rmtree(auto_blur_dist)
+    run_command([sys.executable, "-m", "nuitka", "auto_blur.py"])
+    if not auto_blur_dist.is_dir():
+        print(f"ERROR: Nuitka failed to create the auto_blur dist folder: {auto_blur_dist}")
+        sys.exit(1)
+
     # --- Package for each target ---
     if args.target == 'cpu':
         targets_to_build = ['cpu']
@@ -544,7 +595,7 @@ def main() -> None:
         targets_to_build = [args.target]
 
     for i, build_target in enumerate(targets_to_build):
-        package_target(build_target, args, releases_dir, gui_dist_folder, cli_dist_folder, paddle_version, chrome_lens_version)
+        package_target(build_target, args, releases_dir, gui_dist_folder, cli_dist_folder, auto_blur_dist, paddle_version, chrome_lens_version)
         if i < len(targets_to_build) - 1:
             if "gpu" in build_target:
                 completed_target_name = build_target.replace("gpu-", "GPU-").replace("cuda", "CUDA-")
@@ -560,6 +611,7 @@ def main() -> None:
     if gui_dist_folder:
         shutil.rmtree(gui_dist_folder)
     shutil.rmtree(cli_dist_folder)
+    shutil.rmtree(auto_blur_dist)
 
     print_header("All Builds Complete!")
     print(f"All outputs are located in the '{releases_dir}' folder.")

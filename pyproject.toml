@@ -19,7 +19,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
 ]
 dependencies = [
-    "av",
+    "av<19",
     "cpuid",
     "Fast-SSIM",
     "opencc",

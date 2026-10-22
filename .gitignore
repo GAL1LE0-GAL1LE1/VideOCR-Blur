@@ -12,6 +12,11 @@ videocr_gui_config.ini
 /CLI/PaddleOCR*
 /CLI/Chrome-Lens-OCR*
 /videocr-cli*/
+/auto_blur.dist/
+/CLI/videocr_cli.build/
+/auto_blur.build/
+/.runtime/
+build.log
 
 # Environments
 .env
