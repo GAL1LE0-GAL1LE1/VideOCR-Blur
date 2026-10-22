@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 
 from . import utils
@@ -13,7 +14,7 @@ def save_subtitles_to_file(
         brightness_threshold: int | None = None, ssim_threshold: int = 94, subtitle_position: str = "center", frames_to_skip: int = 1,
         crop_zones: list[dict[str, int]] | None = None, ocr_image_max_width: int = 720, disable_stitching: bool = False, post_processing: bool = False,
         min_subtitle_duration_sec: float = 0.2, normalize_to_simplified_chinese: bool = True, subtitle_alignments: list[str | None] | None = None,
-        save_ocr_images: bool = False, ocr_images_output_dir: str = 'ocr_images') -> None:
+        save_ocr_images: bool = False, ocr_images_output_dir: str = 'ocr_images', boxes_output_path: str | None = None) -> None:
 
     if crop_zones is None:
         crop_zones = []
@@ -53,3 +54,7 @@ def save_subtitles_to_file(
 
     with open(file_path, 'w+', encoding='utf-8') as f:
         f.write(subtitles)
+
+    if boxes_output_path:
+        with open(boxes_output_path, 'w', encoding='utf-8') as f:
+            json.dump(v.get_subtitle_boxes(), f, ensure_ascii=False, indent=1)

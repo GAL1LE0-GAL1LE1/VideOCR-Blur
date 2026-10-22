@@ -158,6 +158,8 @@ class Video:
                 crop_w_coded = crop_w
 
             val_zone['w'] = target_w
+            val_zone['box_origin'] = (crop_x, crop_y)
+            val_zone['box_scale'] = (crop_w / target_w, crop_h / target_h)
             val_zone['h'] = target_h
             val_zone['crop_str'] = f"{crop_w_coded}:{crop_h}:{crop_x_coded}:{crop_y}"
             val_zone['scale_str'] = f"{target_w}:{target_h}:flags=area:threads=1"
@@ -980,6 +982,43 @@ class Video:
 
         return ''.join(srt_lines)
 
+    def get_subtitle_boxes(self) -> dict[str, Any]:
+        """Per-subtitle line bounding boxes in video pixels. Must be called after get_subtitles()."""
+        subtitles: list[dict[str, Any]] = []
+        for i, sub in enumerate(self.pred_subs, 1):
+            start_ms, end_ms = self._get_subtitle_ms_times(sub)
+
+            boxes: list[list[int]] = []
+            for source in sub.source_subs or [sub]:
+                zone = self.validated_zones[source.zone_index]
+                ox, oy = zone['box_origin']
+                sx, sy = zone['box_scale']
+                for x1, y1, x2, y2 in source.get_line_rects():
+                    boxes.append([
+                        max(0, int(ox + x1 * sx)),
+                        max(0, int(oy + y1 * sy)),
+                        min(self.width, int(ox + x2 * sx) + 1),
+                        min(self.height, int(oy + y2 * sy) + 1),
+                    ])
+
+            subtitles.append({
+                'index': i,
+                'start': round(start_ms / 1000, 3),
+                'end': round(end_ms / 1000, 3),
+                'text': sub.text,
+                'boxes': boxes,
+            })
+
+        return {
+            'video': {
+                'width': self.width,
+                'height': self.height,
+                'coded_width': self.coded_width,
+                'sample_aspect_ratio': self.sample_aspect_ratio,
+            },
+            'subtitles': subtitles,
+        }
+
     def _generate_subtitles(self, sim_threshold: int, max_merge_gap_sec: float, lang: str, post_processing: bool, min_subtitle_duration_sec: float, subtitle_alignments: list[str | None]) -> None:
         print("Generating subtitles...", flush=True)
 
@@ -1090,6 +1129,7 @@ class Video:
             segment_frame.start_index = seg_start
             segment_frame.end_index = seg_next - 1
             segment.frames = [segment_frame]
+            segment.source_subs = active
             segment.text = '\n'.join(s.text for s in active)
 
             if self._get_subtitle_duration_sec(segment) < min_subtitle_duration_sec:
