@@ -40,6 +40,12 @@ jobs:
       - name: Build
         run: python build.py --cli-only true --target ${{ matrix.target }} --archive true --release-type blur
 
+      - name: Test the build
+        run: |
+          dir=$(ls -d Releases/videocr-cli-*/ | head -1)
+          # GPU builds only get the start-up check, the runner has no GPU to run the OCR
+          if [ "${{ matrix.target }}" = "cpu" ]; then python .github/smoke_test.py "$dir" --full; else python .github/smoke_test.py "$dir"; fi
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.os }}-${{ matrix.target }}
