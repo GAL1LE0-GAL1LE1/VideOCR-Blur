@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -69,6 +70,15 @@ def build_filter(data: dict[str, Any], fps: str, duration: float, padding: int, 
     ])
 
 
+def graph_option(path: str) -> list[str]:
+    """Read the filter graph from a file: ffmpeg 7 renamed -filter_complex_script to -/filter_complex, and 8 removed the old name."""
+    out = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True).stdout
+    match = re.search(r'version\D*(\d+)\.', out)
+    if match and int(match.group(1)) < 7:
+        return ['-filter_complex_script', path]
+    return ['-/filter_complex', path]
+
+
 def nvenc_works() -> bool:
     """True if ffmpeg can encode with the NVIDIA GPU (the encoder can be listed without a usable GPU, so try it)."""
     result = subprocess.run(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=black:s=256x256:d=0.1', '-c:v', 'h264_nvenc', '-f', 'null', '-'],
@@ -99,7 +109,7 @@ def blur_video(video: str, boxes_path: str, output: str | None = None, padding: 
     starts = [sub['start'] for sub in data['subtitles'] if time_end is None or sub['start'] < time_end]
 
     def encode(video_args: list[str]) -> int:
-        cmd = ['ffmpeg', '-hide_banner', '-loglevel', 'error', '-nostats', '-filter_complex_threads', str(os.cpu_count() or 1), '-progress', 'pipe:1', '-y', '-i', video, '-filter_complex_script', graph_path,
+        cmd = ['ffmpeg', '-hide_banner', '-loglevel', 'error', '-nostats', '-filter_complex_threads', str(os.cpu_count() or 1), '-progress', 'pipe:1', '-y', '-i', video, *graph_option(graph_path),
                '-map', '[out]', '-map', '0:a?', *video_args, '-pix_fmt', 'yuv420p', '-c:a', 'copy']
         if time_end is not None:
             cmd += ['-t', str(time_end)]
