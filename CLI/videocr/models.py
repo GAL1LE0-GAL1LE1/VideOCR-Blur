@@ -90,6 +90,7 @@ class PredictedSubtitle:
     sim_threshold: int
     text: str
     lang: str
+    source_subs: list[PredictedSubtitle] | None = None  # set on dual-zone merged segments
     _language_model: wordninja.LanguageModel | None
 
     def __init__(self, frames: list[PredictedFrames], zone_index: int, sim_threshold: int, lang: str, language_model: wordninja.LanguageModel | None):
@@ -116,6 +117,30 @@ class PredictedSubtitle:
         if self.frames:
             return max(f.end_index for f in self.frames)
         return 0
+
+    def get_line_rects(self) -> list[list[float]]:
+        """Per-line [x1, y1, x2, y2] rects in zone image coordinates, unioned over all frames."""
+        frames_with_lines = [f for f in self.frames if f.lines]
+        if not frames_with_lines:
+            return []
+
+        line_counts = Counter(len(f.lines) for f in frames_with_lines)
+        modal_count = max(line_counts, key=lambda n: (line_counts[n], n))
+
+        rects: list[list[float]] = []
+        for frame in frames_with_lines:
+            if len(frame.lines) != modal_count:
+                continue
+            for i, line in enumerate(frame.lines):
+                xs = [p[0] for word in line for p in word.bounding_box]
+                ys = [p[1] for word in line for p in word.bounding_box]
+                rect = [min(xs), min(ys), max(xs), max(ys)]
+                if i == len(rects):
+                    rects.append(rect)
+                else:
+                    r = rects[i]
+                    rects[i] = [min(r[0], rect[0]), min(r[1], rect[1]), max(r[2], rect[2]), max(r[3], rect[3])]
+        return rects
 
     def is_similar_to(self, other: PredictedSubtitle) -> bool:
         return utils.levenshtein_ratio(self.text.replace(' ', ''), other.text.replace(' ', ''), self.sim_threshold) >= self.sim_threshold

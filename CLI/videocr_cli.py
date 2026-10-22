@@ -144,6 +144,7 @@ def main() -> None:
     parser.add_argument('--allow_system_sleep', type=lambda x: x.lower() == 'true', default=False, help='Allow the system to sleep during processing (default: false)')
     parser.add_argument('--save_ocr_images', type=lambda x: x.lower() == 'true', default=False, help='Save annotated detection and recognition images to disk. Recognition output is PaddleOCR only; not yet supported for Google Lens (default: false)')
     parser.add_argument('--ocr_images_output_dir', type=valid_output_dir_path, default='ocr_images', help='Directory to save OCR images to when --save_ocr_images is enabled (default: ocr_images)')
+    parser.add_argument('--boxes_output', type=valid_output_path, default=None, help='Optional JSON file to save the per-subtitle text bounding boxes (in video pixels) to, e.g. for blurring the subtitles')
 
     args = parser.parse_args()
 
@@ -219,7 +220,8 @@ def main() -> None:
                 disable_stitching=args.disable_stitching,
                 subtitle_alignments=[args.subtitle_alignment, args.subtitle_alignment2],
                 save_ocr_images=args.save_ocr_images,
-                ocr_images_output_dir=args.ocr_images_output_dir
+                ocr_images_output_dir=args.ocr_images_output_dir,
+                boxes_output_path=args.boxes_output
             )
     except ValueError as e:
         print(f"Error: {e}")
