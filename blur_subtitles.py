@@ -55,18 +55,16 @@ def build_filter(data: dict[str, Any], fps: str, duration: float, padding: int, 
         mask.append(
             f"drawbox=x={x1 - bx1}:y={y1 - by1}:w={x2 - x1}:h={y2 - y1}:color=white:t=fill:"
             f"enable='between(t,{start},{end})'")
-    # drawbox's white is limited-range (235), so snap the mask to a full 0/255, then copy it into all three
-    # planes: maskedmerge works per plane, and a plain gray mask would leave the chroma planes half-blended
-    mask.append("lut=y='if(gte(val,128),255,0)',split=3[m0][m1][m2]")
+    # drawbox's white is limited-range (235), so snap the mask to a full 0/255. It is applied as an alpha channel
+    # because alpha is never rescaled; as a colour plane, newer ffmpeg converts its range like the video's
+    mask.append("lut=y='if(gte(val,128),255,0)'[mask]")
 
     return ';'.join([
         "[0:v]split=2[full][src]",
-        f"[src]crop={bw}:{bh}:{bx1}:{by1},split=2[strip][tmp]",
-        f"[tmp]gblur=sigma={blur}:steps=3[blurred]",
+        f"[src]crop={bw}:{bh}:{bx1}:{by1},gblur=sigma={blur}:steps=3[blurred]",
         ','.join(mask),
-        "[m0][m1][m2]mergeplanes=map0s=0:map0p=0:map1s=1:map1p=0:map2s=2:map2p=0:format=yuv444p,format=yuv420p[mask]",
-        "[strip][blurred][mask]maskedmerge[merged]",
-        f"[full][merged]overlay={bx1}:{by1}:eof_action=pass[out]",
+        "[blurred][mask]alphamerge[strip]",
+        f"[full][strip]overlay={bx1}:{by1}:eof_action=pass[out]",
     ])
 
 

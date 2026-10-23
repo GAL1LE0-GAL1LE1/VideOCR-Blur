@@ -18,6 +18,9 @@ CLI = 'videocr-cli.exe' if WINDOWS else 'videocr-cli.bin'
 FONTS = ['C:/Windows/Fonts/arial.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
          '/usr/share/fonts/dejavu/DejaVuSans.ttf', '/usr/share/fonts/TTF/DejaVuSans.ttf']
 TEXT_AREA = 'crop=880:140:200:540'  # where the generated subtitle sits in the 1280x720 test video
+OTHER_AREA = 'crop=1280:400:0:0'  # a part of the frame that is never blurred
+SHOWN = (2, 6)  # seconds during which the subtitle is visible
+BEFORE, DURING, AFTER = 0.8, 4.0, 7.2  # sample times: no subtitle, subtitle, no subtitle
 
 
 def run(cmd: list[str], timeout: int = 1800) -> str:
@@ -35,9 +38,46 @@ def make_test_video(ffmpeg: str, path: Path) -> None:
     if font is None:
         sys.exit('No font found for generating the test video.')
     drawtext = (f"drawtext=fontfile='{font.replace(':', chr(92) + ':')}':text='Hello world this is a test':"
-                'fontsize=56:fontcolor=white:borderw=3:x=(w-text_w)/2:y=h-150')
+                f"fontsize=56:fontcolor=white:borderw=3:x=(w-text_w)/2:y=h-150:enable='between(t,{SHOWN[0]},{SHOWN[1]})'")
     run([ffmpeg, '-y', '-f', 'lavfi', '-i', 'color=c=0x303030:s=1280x720:r=25:d=8', '-vf', drawtext,
-         '-pix_fmt', 'yuv420p', str(path)])
+         '-pix_fmt', 'yuv420p', '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-color_range', 'tv', str(path)])  # tagged like real videos
+
+
+def psnr(ffmpeg: str, a: Path, b: Path, t: float, area: str) -> float:
+    """PSNR between the same part of the same frame in two videos; infinity if identical."""
+    out = run([ffmpeg, '-ss', str(t), '-i', str(a), '-ss', str(t), '-i', str(b), '-lavfi',
+               f'[0:v]{area}[a];[1:v]{area}[b];[a][b]psnr', '-frames:v', '1', '-f', 'null', '-'])
+    value = re.search(r'average:(\S+)', out)
+    if not value:
+        sys.exit('Could not measure the difference between the videos.')
+    return float('inf') if value.group(1) == 'inf' else float(value.group(1))
+
+
+def detail(ffmpeg: str, video: Path, t: float, area: str) -> float:
+    """Amount of edges (text strokes) in part of a frame; 0 for a flat area."""
+    out = run([ffmpeg, '-ss', str(t), '-i', str(video), '-lavfi',
+               f'{area},format=gray,sobel=planes=1,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-',
+               '-frames:v', '1', '-f', 'null', '-'])
+    value = re.search(r'YAVG=(\S+)', out)
+    if not value:
+        sys.exit('Could not measure the amount of detail.')
+    return float(value.group(1))
+
+
+def check_blur(ffmpeg: str, video: Path, blurred: Path) -> None:
+    """The subtitle must be unreadable while it is shown, and nothing may change before, after or elsewhere."""
+    before, after = detail(ffmpeg, video, DURING, TEXT_AREA), detail(ffmpeg, blurred, DURING, TEXT_AREA)
+    print(f'Detail in the subtitle area while the subtitle is shown: {before:.2f} before, {after:.2f} after blurring')
+    if before < 1 or after > before * 0.2:
+        sys.exit('The subtitle is not blurred enough: it should keep less than a fifth of its edges.')
+
+    for t, area, what in ((BEFORE, TEXT_AREA, 'the subtitle area before the subtitle'), (AFTER, TEXT_AREA, 'the subtitle area after the subtitle'),
+                          (DURING, OTHER_AREA, 'the rest of the frame')):
+        value = psnr(ffmpeg, video, blurred, t, area)
+        print(f'Difference in {what}: PSNR {value} dB')
+        if value < 45:
+            sys.exit(f'{what.capitalize()} was changed by the blurring (PSNR {value} dB, unchanged is above 45).')
+    print('Blur check passed.')
 
 
 def main() -> None:
@@ -76,13 +116,7 @@ def main() -> None:
         if not blurred.is_file() or blurred.stat().st_size == 0:
             sys.exit('The blurred video was not created.')
 
-        # The text area must differ strongly from the original; encoding noise alone would give a PSNR above ~40 dB
-        psnr = run([ffmpeg, '-i', str(video), '-i', str(blurred), '-lavfi',
-                    f'[0:v]{TEXT_AREA}[a];[1:v]{TEXT_AREA}[b];[a][b]psnr', '-f', 'null', '-'])
-        match = re.search(r'average:(\S+)', psnr)
-        if not match or match.group(1) == 'inf' or float(match.group(1)) > 35:
-            sys.exit(f'The subtitle area does not look blurred (PSNR {match.group(1) if match else "unknown"}).')
-        print(f'Blur check passed (PSNR {match.group(1)} dB in the subtitle area).')
+        check_blur(ffmpeg, video, blurred)
     print('Full test passed.')
 
 
